@@ -1,0 +1,66 @@
+modLoader = "javafml"
+loaderVersion = "[1,)"
+license = "MIT"
+issueTrackerURL = "https://github.com/leonraineri/make-it-compatible/issues"
+
+[[mods]]
+modId = "sablescale"
+version = "${mod_version}"
+displayName = "Sable Scale"
+logoFile = "icon.png"
+logoBlur = false
+authors = "leon.raineri"
+credits = "RyanHCode (Sable)"
+description = '''Sable Scale lets you scale Sable sub-levels (vehicles / physics objects) up and down with commands.
+
+Commands (permission level 2):
+- /sablescale set <sub_level> <scale>  - set a uniform scale (0.01 - 100); <sub_level> takes Sable's selectors
+  (@e all, @n nearest, @v viewed, @i inside, @l latest, name filters, ...)
+- /sablescale reset <sub_level>        - back to scale 1
+- /sablescale get <sub_level>          - print the current scale
+- /sablescale looking <scale>          - scale the sub-level you are looking at
+- /sablescale looking                  - print the scale of the sub-level you are looking at
+
+Rendering, client interpolation (scaling animates smoothly), entity collision and the world<->sub-level coordinate
+mapping are all scale-aware out of the box in Sable; this mod adds the missing pieces: commands, plus carrying the
+scale across Sable's network protocol and save format (two tiny mixins).
+
+Install this mod on BOTH server and client (it extends Sable's pose wire format, so both sides must agree).
+Saves stay compatible: worlds load fine without this mod, scaled sub-levels just return to scale 1.
+
+Physics follows the scale: the terrain collider is rebuilt on the scaled block lattice and the rigid body gets
+matching mass and inertia (a half-scale vehicle weighs 1/8th and still floats at its waterline). Entity-vs-sub-level
+collision is fully scale-aware. Resizing keeps the vehicle seated: the hull's lowest point holds its height (things
+grow upward/outward, not into the ground) and the hull is lifted clear of terrain steps it would grow onto.
+
+Built alongside the "Make it Compatible" mods (Make it Compatible: Voxy / Sable, Better Simple Clouds) and fully
+compatible with them.'''
+
+# The pose-format mixins apply only when Sable is present (see dev.sablescale.scale.ScaleMixinPlugin).
+[[mixins]]
+config = "sablescale.mixins.json"
+
+# --- Dependencies ---------------------------------------------------------------------------------
+# Sable is optional so the jar loads cleanly in packs without it (everything self-gates); when it IS present the
+# ordering = "AFTER" entry makes sure its classes exist before ours reference them.
+
+[[dependencies.sablescale]]
+modId = "neoforge"
+type = "required"
+versionRange = "[21.1,)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.sablescale]]
+modId = "minecraft"
+type = "required"
+versionRange = "[1.21.1,1.22)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.sablescale]]
+modId = "sable"
+type = "optional"
+versionRange = "[2.0,)"
+ordering = "AFTER"
+side = "BOTH"

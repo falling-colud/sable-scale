@@ -1,0 +1,29 @@
+{
+    "required": true,
+    "minVersion": "0.8",
+    "package": "dev.sablescale.scale.mixin",
+    "plugin": "dev.sablescale.scale.ScaleMixinPlugin",
+    "compatibilityLevel": "JAVA_21",
+    "mixins": [
+        "SableBufferUtilsMixin",
+        "SableNBTUtilsMixin",
+        "SubLevelEntityCollisionMixin",
+        "BlockGetterClipScaleMixin",
+        "ClipContextAccessor",
+        "RapierPhysicsPipelineMixin",
+        "Rapier3DAccessor",
+        "MergedMassTrackerMixin",
+        "CanFallAtleastHelperScaleMixin",
+        "SubLevelAssemblyHelperScaleMixin",
+        "PlayerReachScaleMixin"
+    ],
+    "client": [
+        "VanillaChunkedSubLevelRenderDataMixin",
+        "VanillaSingleSubLevelRenderDataMixin",
+        "FancySubLevelRenderDispatcherMixin",
+        "LevelRendererOutlineScaleMixin"
+    ],
+    "injectors": {
+        "defaultRequire": 1
+    }
+}

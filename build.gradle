@@ -1,0 +1,95 @@
+plugins {
+    id 'java'
+    // NeoForge's official build plugin. Use the latest 2.0.x; bump if Gradle reports a newer one.
+    id 'net.neoforged.moddev' version '2.0.+'
+}
+
+group = 'dev.makeitcompatible'
+version = project.mod_version
+base.archivesName = 'sable-scale'
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+
+// Sable Scale -- scale Sable sub-levels up/down via commands (carries pose scale over Sable's network
+// and save formats).
+sourceSets {
+    scale {
+        java.srcDirs = ['src/scale/java']
+        resources.srcDirs = ['src/scale/resources']
+    }
+}
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://maven.ryanhcode.dev/releases'      ; name = 'Sable'        }
+    maven { url = 'https://maven.su5ed.dev/releases'          ; name = 'CreativeCore' }
+    maven { url = 'https://api.modrinth.com/maven'            ; name = 'Modrinth'     }
+    maven { url = 'https://cursemaven.com'; content { includeGroup 'curse.maven' } }
+    maven { url = 'https://maven.caffeinemc.net/releases'     ; name = 'CaffeineMC'   }
+    maven { url = 'https://maven.nonamecrackers2.dev/releases'; name = 'nonamecrackers2' }
+    maven { url = 'https://maven.bawnorton.com/releases'      ; name = 'Bawnorton'    } // MixinSquared
+    // Shared, provided-at-runtime mod jars live one level up (see ../libs/README.md).
+    flatDir { dirs 'libs', '../libs' }
+}
+
+neoForge {
+    version = project.neoforge_version
+
+    parchment {
+        minecraftVersion = project.parchment_minecraft
+        mappingsVersion = project.parchment_version
+    }
+
+    runs {
+        client {
+            client()
+            gameDirectory = file('run')
+        }
+    }
+
+    mods {
+        sablescale {
+            sourceSet sourceSets.scale
+        }
+    }
+
+    addModdingDependenciesTo sourceSets.scale
+}
+
+// The default (empty) main source set builds nothing we ship; the real artifact has its own jar task.
+tasks.named('jar') { enabled = false }
+
+configurations {
+    scaleCompileOnly.extendsFrom compileOnly
+}
+
+dependencies {
+    // Sable (+ its bundled API libs), provided at runtime by the modpack (compileOnly here so it is NOT
+    // bundled). The patch self-gates at runtime. Preferred source: local jars in ../libs.
+    compileOnly fileTree(dir: 'libs', include: ['*.jar'])
+    compileOnly fileTree(dir: '../libs', include: ['*.jar'])
+}
+
+// Interpolate gradle.properties into neoforge.mods.toml (so ${mod_version} stays in one place).
+tasks.named('processScaleResources', ProcessResources) {
+    final def props = [mod_version: project.mod_version]
+    inputs.properties(props)
+    filesMatching('META-INF/neoforge.mods.toml') { expand(props) }
+}
+
+// ------------------------------------------------------------------------------------------------
+// Sable Scale  -- a plain mod jar (commands + two small mixins into Sable's pose serialization).
+// ------------------------------------------------------------------------------------------------
+tasks.register('scaleJar', Jar) {
+    from sourceSets.scale.output
+    archiveBaseName = 'sable-scale'
+    manifest {
+        attributes([
+            'Specification-Title'   : 'sable-scale',
+            'Specification-Version' : project.version,
+            'Implementation-Title'  : 'Sable Scale',
+            'Implementation-Version': project.version
+        ])
+    }
+}
+tasks.named('assemble') { dependsOn 'scaleJar' }

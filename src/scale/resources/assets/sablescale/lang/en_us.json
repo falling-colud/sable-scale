@@ -1,0 +1,5 @@
+{
+    "commands.sablescale.set.success": "Scaled %s to ×%s",
+    "commands.sablescale.get.success": "%s is at scale ×%s",
+    "commands.sablescale.fail.not_looking": "You are not looking at a sub-level"
+}
