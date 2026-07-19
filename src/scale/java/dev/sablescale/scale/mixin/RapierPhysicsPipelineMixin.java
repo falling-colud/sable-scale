@@ -8,6 +8,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import net.minecraft.core.SectionPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.block.state.BlockState;
@@ -20,6 +21,7 @@ import dev.ryanhcode.sable.sublevel.ServerSubLevel;
 import dev.ryanhcode.sable.sublevel.plot.LevelPlot;
 import dev.sablescale.scale.ScaledColliderPipeline;
 import dev.sablescale.scale.ScaledColliders;
+import dev.sablescale.scale.ScaledDrag;
 import dev.sablescale.scale.ScaledMass;
 
 /**
@@ -37,6 +39,11 @@ public abstract class RapierPhysicsPipelineMixin implements ScaledColliderPipeli
     @Final
     private ServerLevel level;
 
+    /** The bodies actually in the native scene - the only ones safe to hand a body id to (see {@link ScaledDrag}). */
+    @Shadow
+    @Final
+    private Int2ObjectMap<ServerSubLevel> activeSubLevels;
+
     @Shadow
     protected abstract long getSceneHandle();
 
@@ -53,6 +60,17 @@ public abstract class RapierPhysicsPipelineMixin implements ScaledColliderPipeli
     @Inject(method = "<init>", at = @At("TAIL"))
     private void sablescale$register(final ServerLevel level, final CallbackInfo ci) {
         ScaledColliders.register(level, (RapierPhysicsPipeline) (Object) this);
+    }
+
+    /**
+     * {@code prePhysicsTicks} is the {@code Rapier3D.tick} call that runs Sable's buoyancy pass, so by TAIL the
+     * native water forces for this tick are on the bodies and the substep loop has not started integrating them
+     * yet - the one window where the drag correction can land (see {@link dev.sablescale.scale.ScaledDrag}).
+     */
+    @Inject(method = "prePhysicsTicks", at = @At("TAIL"))
+    private void sablescale$correctWaterDrag(final CallbackInfo ci) {
+        ScaledDrag.correctAll((RapierPhysicsPipeline) (Object) this, this.level, this.getSceneHandle(),
+            this.activeSubLevels.values());
     }
 
     @Inject(method = "handleChunkSectionAddition", at = @At("HEAD"), cancellable = true)

@@ -3,10 +3,12 @@ package dev.sablescale.scale;
 import org.joml.Vector3d;
 import org.joml.Vector3dc;
 
+import dev.ryanhcode.sable.api.SubLevelHelper;
 import dev.ryanhcode.sable.api.physics.PhysicsPipeline;
 import dev.ryanhcode.sable.api.sublevel.ServerSubLevelContainer;
 import dev.ryanhcode.sable.api.sublevel.SubLevelContainer;
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
+import dev.ryanhcode.sable.sublevel.SubLevel;
 
 /** Applies a scale to a server sub-level and makes sure it actually reaches clients and disk. */
 public final class SubLevelScale {
@@ -25,14 +27,38 @@ public final class SubLevelScale {
      *
      * <p>Physics keeps the scale intact: {@code SubLevelPhysicsSystem}'s per-tick pose writeback only touches
      * position and orientation. Persistence and networking are covered by this mod's two mixins.</p>
+     *
+     * <p><b>The whole machine scales, not just this body.</b> A Create Simulated swivel bearing (and the same for
+     * springs, ropes and docking connectors) splits its moving half into a <em>separate</em> sub-level and declares
+     * it through Sable's {@code sable$getConnectionDependencies}. Scaling only the targeted body therefore left the
+     * bearing's rotating half at its old size - the reported "rotating part is the wrong size", visible only once
+     * scaled. We walk Sable's own {@link SubLevelHelper#getConnectedChain} (transitive, cycle-safe) and set the
+     * same scale on every connected body. Only the targeted body is re-seated against the terrain: the connected
+     * pieces are held in place by their joints, and lifting each one independently would pull the machine apart.</p>
+     *
+     * <p><b>Known ordering caveat:</b> a joint's anchors are baked into the native constraint when it is created
+     * (rotary joints expose no way to re-aim them afterwards), so a bearing assembled <em>before</em> a scale
+     * change keeps scale-1 anchors and will sit misaligned until it is re-assembled. Scale first, then assemble -
+     * or re-assemble the bearing after rescaling.</p>
      */
     public static void apply(final ServerSubLevel subLevel, final double scale) {
+        applyToBody(subLevel, scale, true);
+        for (final SubLevel connected : SubLevelHelper.getConnectedChain(subLevel))
+            if (connected != subLevel && connected instanceof ServerSubLevel body && !body.isRemoved())
+                applyToBody(body, scale, false);
+    }
+
+    /**
+     * Scales one body. {@code reseat} runs the terrain anchor/lift (see {@link TerrainClearance}); it is off for
+     * bodies pulled in through the connection chain, whose position is owned by their joints.
+     */
+    private static void applyToBody(final ServerSubLevel subLevel, final double scale, final boolean reseat) {
         // Measure the hull bottom BEFORE the change: scaling is centered on the rotation point (≈ CoM), so a
         // grounded vehicle would otherwise grow straight into the floor (solver ejection / wedging) or shrink
         // into a mid-air drop. Anchoring the lowest point keeps it seated - and because position and scale lerp
         // linearly in the same client snapshot, bottom(t) = pos_y(t) + s(t)·m stays constant through the whole
         // grow animation, not just at its endpoints (Δpos cancels Δscale·m exactly, like the CoM compensation).
-        final double bottomBefore = TerrainClearance.lowestHullY(subLevel);
+        final double bottomBefore = reseat ? TerrainClearance.lowestHullY(subLevel) : Double.NaN;
 
         subLevel.logicalPose().scale().set(scale, scale, scale);
 

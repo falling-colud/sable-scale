@@ -11,6 +11,8 @@ import java.util.WeakHashMap;
 import com.mojang.logging.LogUtils;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongList;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import net.minecraft.core.BlockPos;
@@ -74,6 +76,8 @@ public final class ScaledColliders {
         final RapierPhysicsPipeline pipeline;
         final Set<UUID> dirty = new LinkedHashSet<>();
         final Map<UUID, LongSet> uploadedSections = new HashMap<>();
+        /** Per managed body: the cells Sable's water drag hits, and the strength it should hit them with. */
+        final Map<UUID, ScaledDrag.Profile> dragProfiles = new HashMap<>();
         /** Rotation point each managed body's lattice was last resampled around. */
         final Map<UUID, Vector3d> rebuildAnchor = new HashMap<>();
         /** Plot sections Sable believes are in the native scene but aren't (add cancelled, or dropped by us). */
@@ -92,6 +96,16 @@ public final class ScaledColliders {
     public static boolean isManaged(final ServerSubLevel subLevel) {
         final Vector3dc scale = subLevel.logicalPose().scale();
         return scale.x() != 1.0 || scale.y() != 1.0 || scale.z() != 1.0;
+    }
+
+    /**
+     * This body's water-drag correction, or null when it needs none (unscaled lattice, or over
+     * {@link ScaledDrag}'s budget). The cells it carries are exactly the ones Sable's buoyancy pass can reach:
+     * {@code insert_block_octree} keeps a cell out of the body octree when its neighbourhood is {@code INTERIOR}.
+     */
+    public static synchronized ScaledDrag.Profile dragProfile(final ServerSubLevel subLevel) {
+        final LevelState state = LEVELS.get(subLevel.getLevel());
+        return state == null ? null : state.dragProfiles.get(subLevel.getUniqueId());
     }
 
     public static synchronized void markDirty(final ServerSubLevel subLevel) {
@@ -140,6 +154,7 @@ public final class ScaledColliders {
             return;
         state.dirty.remove(subLevel.getUniqueId());
         state.rebuildAnchor.remove(subLevel.getUniqueId());
+        state.dragProfiles.remove(subLevel.getUniqueId());
         final LongSet uploaded = state.uploadedSections.remove(subLevel.getUniqueId());
         if (uploaded != null)
             removeSections(state, uploaded);
@@ -182,6 +197,7 @@ public final class ScaledColliders {
                         LOGGER.error("[Sable Scale] failed to rebuild scaled collider for {}", serverSubLevel, t);
                     }
                 } else {
+                    state.dragProfiles.remove(uuid);
                     final LongSet uploaded = state.uploadedSections.remove(uuid);
                     if (uploaded != null)
                         removeSections(state, uploaded);
@@ -208,6 +224,7 @@ public final class ScaledColliders {
                 state.uploadedSections.remove(uuid);
             }
             state.rebuildAnchor.remove(uuid);
+            state.dragProfiles.remove(uuid);
             replayStockSections(state, subLevel);
             return;
         }
@@ -215,9 +232,10 @@ public final class ScaledColliders {
         // Resample BEFORE touching the native scene: when it bails over the cell budget, whatever collider is
         // currently uploaded (the stock one on a first transition) must stay - removing first left the body
         // with no terrain collider at all.
-        final Long2ObjectMap<int[]> sections = resample(subLevel);
-        if (sections == null)
+        final Resampled resampled = resample(subLevel);
+        if (resampled == null)
             return; // over budget - vehicle keeps its current collider
+        final Long2ObjectMap<int[]> sections = resampled.sections();
 
         // Entering managed state: the plot's stock voxel chunks are still in the native scene - drop them.
         if (firstTransition)
@@ -237,6 +255,7 @@ public final class ScaledColliders {
         }
         state.uploadedSections.put(uuid, uploaded);
         state.rebuildAnchor.put(uuid, new Vector3d(subLevel.logicalPose().rotationPoint()));
+        state.dragProfiles.put(uuid, ScaledDrag.profile(subLevel, resampled.surfaceCells(), resampled.unscaledSurface()));
         applyScaledLocalBounds(handle, bodyId, subLevel);
     }
 
@@ -280,16 +299,28 @@ public final class ScaledColliders {
         }
     }
 
-    public static void applyScaledLocalBounds(final long handle, final int bodyId, final ServerSubLevel subLevel) {
+    /**
+     * The scaled plot-local cell bounds this mod hands Sable's {@code setLocalBounds}: {@code {minX, minY, minZ,
+     * maxX, maxY, maxZ}}. Native uses them for more than a bounding box - they size the body octree and anchor its
+     * index space ({@code find_collision_pairs} reports leaves as {@code node.min + local_bounds_min}) - so they
+     * have to describe the resampled lattice, not the unscaled plot.
+     */
+    public static int[] scaledLocalBounds(final ServerSubLevel subLevel) {
         final BoundingBox3ic bounds = subLevel.getPlot().getBoundingBox();
         final Vector3dc rp = subLevel.logicalPose().rotationPoint();
         final Vector3dc s = subLevel.logicalPose().scale();
         final double minX = rp.x() + s.x() * (bounds.minX() - rp.x()), maxX = rp.x() + s.x() * (bounds.maxX() + 1 - rp.x());
         final double minY = rp.y() + s.y() * (bounds.minY() - rp.y()), maxY = rp.y() + s.y() * (bounds.maxY() + 1 - rp.y());
         final double minZ = rp.z() + s.z() * (bounds.minZ() - rp.z()), maxZ = rp.z() + s.z() * (bounds.maxZ() + 1 - rp.z());
-        Rapier3DAccessor.sablescale$setLocalBounds(handle, bodyId,
+        return new int[]{
             (int) Math.floor(Math.min(minX, maxX)), (int) Math.floor(Math.min(minY, maxY)), (int) Math.floor(Math.min(minZ, maxZ)),
-            (int) Math.ceil(Math.max(minX, maxX)), (int) Math.ceil(Math.max(minY, maxY)), (int) Math.ceil(Math.max(minZ, maxZ)));
+            (int) Math.ceil(Math.max(maxX, minX)), (int) Math.ceil(Math.max(maxY, minY)), (int) Math.ceil(Math.max(maxZ, minZ))};
+    }
+
+    public static void applyScaledLocalBounds(final long handle, final int bodyId, final ServerSubLevel subLevel) {
+        final int[] bounds = scaledLocalBounds(subLevel);
+        Rapier3DAccessor.sablescale$setLocalBounds(handle, bodyId,
+            bounds[0], bounds[1], bounds[2], bounds[3], bounds[4], bounds[5]);
     }
 
     // ------------------------------------------------------------------------------------------
@@ -329,8 +360,14 @@ public final class ScaledColliders {
         }
     }
 
-    /** @return section key → packed voxel data for the scaled hull, or null when over the cell budget. */
-    private static Long2ObjectMap<int[]> resample(final ServerSubLevel subLevel) {
+    /**
+     * The scaled hull's native upload (section key → packed voxel data), plus what {@link ScaledDrag} needs to fix
+     * its water drag: the lattice's surface cells and the surface cell count the same hull has at scale 1.
+     */
+    private record Resampled(Long2ObjectMap<int[]> sections, long[] surfaceCells, int unscaledSurface) {}
+
+    /** @return the resampled hull, or null when over the cell budget. */
+    private static Resampled resample(final ServerSubLevel subLevel) {
         final ServerLevel level = subLevel.getLevel();
         final BoundingBox3ic bounds = subLevel.getPlot().getBoundingBox();
         final Vector3dc rp = subLevel.logicalPose().rotationPoint();
@@ -343,6 +380,11 @@ public final class ScaledColliders {
         }
 
         final Long2ObjectMap<CellBuilder> cells = new Long2ObjectOpenHashMap<>();
+        // The unscaled block grid, kept so we can count the surface cells this hull would have at scale 1 - the
+        // reference drag ScaledDrag scales onto (it cannot be read back off the scaled lattice once the hull is
+        // small enough that its cell count stops following the S² area law).
+        final LongSet solidBlocks = new LongOpenHashSet();
+        final LongSet fullBlocks = new LongOpenHashSet();
         final BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
         for (int y = bounds.minY(); y <= bounds.maxY(); y++) {
             for (int z = bounds.minZ(); z <= bounds.maxZ(); z++) {
@@ -356,12 +398,18 @@ public final class ScaledColliders {
                         continue;
                     final float friction = (float) PhysicsBlockPropertyHelper.getFriction(blockState);
                     final float restitution = (float) PhysicsBlockPropertyHelper.getRestitution(blockState);
+                    double blockVolume = 0.0;
                     for (final AABB box : shape.toAabbs()) {
+                        blockVolume += (box.maxX - box.minX) * (box.maxY - box.minY) * (box.maxZ - box.minZ);
                         fragment(cells,
                             rp.x() + s.x() * (x + box.minX - rp.x()), rp.y() + s.y() * (y + box.minY - rp.y()), rp.z() + s.z() * (z + box.minZ - rp.z()),
                             rp.x() + s.x() * (x + box.maxX - rp.x()), rp.y() + s.y() * (y + box.maxY - rp.y()), rp.z() + s.z() * (z + box.maxZ - rp.z()),
                             friction, restitution);
                     }
+                    final long blockKey = BlockPos.asLong(x, y, z);
+                    solidBlocks.add(blockKey);
+                    if (blockVolume >= 0.999)
+                        fullBlocks.add(blockKey);
                 }
             }
         }
@@ -369,19 +417,45 @@ public final class ScaledColliders {
         // Pack cells into per-section arrays; enclosed full cells become INTERIOR like stock, the rest CORNER
         // (all faces active - resampled cells have no reliable level-side neighbourhood to consult).
         final Long2ObjectMap<int[]> sections = new Long2ObjectOpenHashMap<>();
+        final LongList surface = new LongArrayList();
         for (final Long2ObjectMap.Entry<CellBuilder> entry : cells.long2ObjectEntrySet()) {
             final long cellKey = entry.getLongKey();
             final CellBuilder cell = entry.getValue();
             final int cellX = BlockPos.getX(cellKey), cellY = BlockPos.getY(cellKey), cellZ = BlockPos.getZ(cellKey);
-            final int neighborhood = cell.full() && isEnclosed(cells, cellX, cellY, cellZ) ? 4 /* INTERIOR */ : 3 /* CORNER */;
+            final boolean interior = cell.full() && isEnclosed(cells, cellX, cellY, cellZ);
+            final int neighborhood = interior ? 4 /* INTERIOR */ : 3 /* CORNER */;
             final int collider = getOrCreateEntry(cell).handle();
             final int packed = neighborhood | collider + 1 << 16;
             final long sectionKey = SectionPos.asLong(cellX >> 4, cellY >> 4, cellZ >> 4);
             final int[] data = sections.computeIfAbsent(sectionKey, key -> new int[4096]);
             data[(cellX & 15) + ((cellZ & 15) << 4) + ((cellY & 15) << 8)] = packed;
+            // Native keeps INTERIOR cells out of the body octree, so only these ever see water (see ScaledDrag).
+            if (!interior)
+                surface.add(cellKey);
         }
 
-        return sections;
+        return new Resampled(sections, surface.toLongArray(), unscaledSurface(solidBlocks, fullBlocks));
+    }
+
+    /**
+     * How many cells of this hull would reach Sable's buoyancy loop at scale 1: every solid block except the ones
+     * a stock upload would mark {@code INTERIOR}. Same enclosure rule as the scaled lattice below, one cell per
+     * block instead of per fragment.
+     */
+    private static int unscaledSurface(final LongSet solidBlocks, final LongSet fullBlocks) {
+        int surface = 0;
+        for (final long key : solidBlocks) {
+            final int x = BlockPos.getX(key), y = BlockPos.getY(key), z = BlockPos.getZ(key);
+            if (!fullBlocks.contains(key) || !isEnclosedBlock(fullBlocks, x, y, z))
+                surface++;
+        }
+        return surface;
+    }
+
+    private static boolean isEnclosedBlock(final LongSet fullBlocks, final int x, final int y, final int z) {
+        return fullBlocks.contains(BlockPos.asLong(x - 1, y, z)) && fullBlocks.contains(BlockPos.asLong(x + 1, y, z))
+            && fullBlocks.contains(BlockPos.asLong(x, y - 1, z)) && fullBlocks.contains(BlockPos.asLong(x, y + 1, z))
+            && fullBlocks.contains(BlockPos.asLong(x, y, z - 1)) && fullBlocks.contains(BlockPos.asLong(x, y, z + 1));
     }
 
     private static boolean isEnclosed(final Long2ObjectMap<CellBuilder> cells, final int x, final int y, final int z) {

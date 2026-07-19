@@ -40,6 +40,16 @@ compatible with them.'''
 [[mixins]]
 config = "sablescale.mixins.json"
 
+# The Flywheel embedding-scale patch (Create shafts / instanced kinetic blocks) applies only when Sable AND
+# Flywheel are present (see dev.sablescale.scale.flywheel.FlywheelScaleMixinPlugin); uses MixinSquared.
+[[mixins]]
+config = "sablescale.flywheel.mixins.json"
+
+# The Create Simulated patch (swivel bearing allocates its own sub-level) applies only when Sable AND Simulated
+# are present (see dev.sablescale.scale.simulated.SimulatedScaleMixinPlugin).
+[[mixins]]
+config = "sablescale.simulated.mixins.json"
+
 # --- Dependencies ---------------------------------------------------------------------------------
 # Sable is optional so the jar loads cleanly in packs without it (everything self-gates); when it IS present the
 # ordering = "AFTER" entry makes sure its classes exist before ours reference them.
@@ -64,3 +74,12 @@ type = "optional"
 versionRange = "[2.0,)"
 ordering = "AFTER"
 side = "BOTH"
+
+# Optional: only the Flywheel embedding-scale patch needs it. AFTER so Flywheel + Sable's flywheel mixin are in
+# place before MixinSquared retargets them (the patch self-gates on flywheel too).
+[[dependencies.sablescale]]
+modId = "flywheel"
+type = "optional"
+versionRange = "[1.0,)"
+ordering = "AFTER"
+side = "CLIENT"

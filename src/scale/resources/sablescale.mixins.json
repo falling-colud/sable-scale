@@ -11,6 +11,10 @@
         "BlockGetterClipScaleMixin",
         "ClipContextAccessor",
         "RapierPhysicsPipelineMixin",
+        "RapierActuatorForceScaleMixin",
+        "RapierConstraintScaleMixin",
+        "RapierConstraintHandleScaleMixin",
+        "RapierGenericConstraintFrameScaleMixin",
         "Rapier3DAccessor",
         "MergedMassTrackerMixin",
         "CanFallAtleastHelperScaleMixin",
@@ -18,6 +22,8 @@
         "PlayerReachScaleMixin"
     ],
     "client": [
+        "SableDynamicShadingNormalScaleMixin",
+        "ClientSubLevelSkyLightScaleMixin",
         "VanillaChunkedSubLevelRenderDataMixin",
         "VanillaSingleSubLevelRenderDataMixin",
         "FancySubLevelRenderDispatcherMixin",

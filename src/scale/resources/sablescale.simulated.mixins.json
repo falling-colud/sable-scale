@@ -1,0 +1,13 @@
+{
+    "required": true,
+    "minVersion": "0.8",
+    "package": "dev.sablescale.scale.simulated.mixin",
+    "plugin": "dev.sablescale.scale.simulated.SimulatedScaleMixinPlugin",
+    "compatibilityLevel": "JAVA_21",
+    "mixins": [
+        "SwivelBearingAssemblyScaleMixin"
+    ],
+    "injectors": {
+        "defaultRequire": 1
+    }
+}

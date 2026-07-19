@@ -33,7 +33,10 @@ import dev.sablescale.core.ModIds;
  * <p>Physics follows the scale too: the Rapier terrain collider is resampled onto the scaled lattice
  * ({@code dev.sablescale.scale.ScaledColliders}) and the rigid body gets scale-corrected mass and inertia
  * ({@code dev.sablescale.scale.ScaledMass}: mass &times;S&sup3;, inertia &times;S&#8309; for uniform scale), so a
- * scaled vehicle collides, weighs and floats like the small/large thing it looks like. Entity-vs-sub-level
+ * scaled vehicle collides, weighs and floats like the small/large thing it looks like. Water drag is corrected to
+ * match ({@code dev.sablescale.scale.ScaledDrag}) &mdash; Sable's drag counts hull <em>surface cells</em>, so left
+ * alone it outruns the &times;S&sup3; mass and eventually launches a shrunken vehicle out of the world.
+ * Entity-vs-sub-level
  * collision is scale-aware out of the box (it goes through the pose transforms). Resizing keeps the vehicle
  * seated instead of burying it: the hull's lowest point is anchored across the change and the hull is lifted
  * clear of any terrain it would grow into ({@code dev.sablescale.scale.TerrainClearance}).</p>

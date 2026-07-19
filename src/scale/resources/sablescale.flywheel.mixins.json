@@ -1,0 +1,13 @@
+{
+    "required": true,
+    "minVersion": "0.8",
+    "package": "dev.sablescale.scale.flywheel.mixin",
+    "plugin": "dev.sablescale.scale.flywheel.FlywheelScaleMixinPlugin",
+    "compatibilityLevel": "JAVA_21",
+    "client": [
+        "SableFlywheelEmbeddingScaleMixin"
+    ],
+    "injectors": {
+        "defaultRequire": 1
+    }
+}

@@ -39,4 +39,20 @@ public interface Rapier3DAccessor {
     static void sablescale$setMassPropertiesFrom(final long handle, final int bodyId, final MassData massData) {
         throw new AssertionError();
     }
+
+    /** Force + torque on a body (body frame); re-dispatched with scale-corrected magnitudes by the actuator mixin. */
+    @Invoker(value = "applyForceAndTorque", remap = false)
+    static void sablescale$applyForceAndTorque(final long handle, final int bodyId,
+                                               final double fx, final double fy, final double fz,
+                                               final double tx, final double ty, final double tz, final boolean wakeUp) {
+        throw new AssertionError();
+    }
+
+    /** Force at a body-frame offset from the centre of mass (native derives the torque); scale-corrected re-dispatch. */
+    @Invoker(value = "applyForce", remap = false)
+    static void sablescale$applyForce(final long handle, final int bodyId,
+                                      final double px, final double py, final double pz,
+                                      final double fx, final double fy, final double fz, final boolean wakeUp) {
+        throw new AssertionError();
+    }
 }

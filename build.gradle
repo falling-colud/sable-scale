@@ -28,8 +28,8 @@ repositories {
     maven { url = 'https://maven.caffeinemc.net/releases'     ; name = 'CaffeineMC'   }
     maven { url = 'https://maven.nonamecrackers2.dev/releases'; name = 'nonamecrackers2' }
     maven { url = 'https://maven.bawnorton.com/releases'      ; name = 'Bawnorton'    } // MixinSquared
-    // Shared, provided-at-runtime mod jars live one level up (see ../libs/README.md).
-    flatDir { dirs 'libs', '../libs' }
+    // Shared, provided-at-runtime mod jars live two levels up (see ../../libs/README.md).
+    flatDir { dirs 'libs', '../../libs' }
 }
 
 neoForge {
@@ -65,9 +65,27 @@ configurations {
 
 dependencies {
     // Sable (+ its bundled API libs), provided at runtime by the modpack (compileOnly here so it is NOT
-    // bundled). The patch self-gates at runtime. Preferred source: local jars in ../libs.
+    // bundled). The patch self-gates at runtime. Preferred source: local jars in ../../libs.
     compileOnly fileTree(dir: 'libs', include: ['*.jar'])
-    compileOnly fileTree(dir: '../libs', include: ['*.jar'])
+    compileOnly fileTree(dir: '../../libs', include: ['*.jar'])
+
+    // MixinSquared: the Flywheel patch (SableFlywheelEmbeddingScaleMixin) injects into Sable's OWN flywheel mixin
+    // method (BlockEntityStorageMixin.sable$updateEmbeddingTransforms) to add the pose scale that Flywheel's
+    // instanced path drops - that is only reachable via MixinSquared's @TargetHandler. compileOnly + AP for the
+    // scale source set; the NeoForge runtime half is JarJar'd into the mod jar (see scaleJar) so the distributed
+    // jar stays self-contained (harmless if the pack already ships MixinSquared - JarJar dedupes by version).
+    scaleCompileOnly 'com.github.bawnorton.mixinsquared:mixinsquared-common:0.3.4'
+    scaleAnnotationProcessor 'com.github.bawnorton.mixinsquared:mixinsquared-common:0.3.4'
+    jarJar('com.github.bawnorton.mixinsquared:mixinsquared-neoforge') {
+        version {
+            strictly '[0.3.3,)'
+            prefer '0.3.4'
+        }
+    }
+    // In dev the nested-jar path (and its JarJar'd MixinSquared) is not used - the mod loads from class dirs - so
+    // provide MixinSquared on the dev runtime classpath too (dist jars are unaffected). Only mixinsquared-common is
+    // needed here; adding mixinsquared-neoforge would split-package against it and fail module resolution.
+    additionalRuntimeClasspath 'com.github.bawnorton.mixinsquared:mixinsquared-common:0.3.4'
 }
 
 // Interpolate gradle.properties into neoforge.mods.toml (so ${mod_version} stays in one place).
@@ -82,6 +100,9 @@ tasks.named('processScaleResources', ProcessResources) {
 // ------------------------------------------------------------------------------------------------
 tasks.register('scaleJar', Jar) {
     from sourceSets.scale.output
+    // Bundle the JarJar'd MixinSquared NeoForge half (for the Flywheel patch) into the mod jar; FML resolves
+    // META-INF/jarjar/ of located mod files, so nesting it here keeps the distributed jar self-contained.
+    from tasks.named('jarJar')
     archiveBaseName = 'sable-scale'
     manifest {
         attributes([
